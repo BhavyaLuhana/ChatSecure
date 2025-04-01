@@ -16,7 +16,7 @@ const Message = require('./models/message');
 dotenv.config();
 const SECRET_KEY = process.env.CHAT_SECRET;
 if (!SECRET_KEY) {
-  console.error("ERROR: SECRET_KEY is missing in .env");
+  console.error("ERROR: JWT_SECRET is missing!");
   process.exit(1);
 }
 

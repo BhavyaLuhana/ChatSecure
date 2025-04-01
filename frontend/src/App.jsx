@@ -7,7 +7,6 @@ const App = () => {
       <Link to="/login" className="bg-blue-500 text-white px-4 py-2 rounded mb-2">Login</Link>
       <Link to="/register" className="bg-green-500 text-white px-4 py-2 rounded">Register</Link>
       <Link to="/chat" className="bg-purple-500 text-white px-4 py-2 rounded">Go to Chat</Link>
-
     </div>
   );
 };
