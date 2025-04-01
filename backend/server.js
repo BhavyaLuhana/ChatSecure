@@ -156,17 +156,34 @@ io.on("connection", (socket) => {
     console.log(`User disconnected: ${socket.id}`);
   });
 
-  socket.on('reactToMessage', async ({ messageId, reaction, room }) => {
-  try {
-    await Message.findByIdAndUpdate(messageId, {
-      $addToSet: { reactions: { emoji: reaction, user: socket.userId } }
-    });
-    
-    socket.to(room).emit('messageReaction', { messageId, reaction });
-  } catch (error) {
-    console.error("Reaction error:", error);
-  }
-});
+  // In your socket.io connection handler
+  socket.on('reactToMessage', async ({ messageId, reaction, room, user }) => {
+    try {
+      // Update in database
+      await Message.findByIdAndUpdate(messageId, {
+        $addToSet: { reactions: { emoji: reaction, user } }
+      });
+      
+      // Broadcast to room
+      socket.to(room).emit('messageReaction', { messageId, reaction, user });
+    } catch (error) {
+      console.error("Reaction error:", error);
+    }
+  });
+
+  socket.on('removeReaction', async ({ messageId, reaction, room, user }) => {
+    try {
+      // Update in database
+      await Message.findByIdAndUpdate(messageId, {
+        $pull: { reactions: { emoji: reaction, user } }
+      });
+      
+      // Broadcast to room
+      socket.to(room).emit('reactionRemoved', { messageId, reaction, user });
+    } catch (error) {
+      console.error("Remove reaction error:", error);
+    }
+  });
 });
 
 app.post('/api/upload', upload.single("file"), (req, res) => {

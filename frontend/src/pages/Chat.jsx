@@ -6,6 +6,7 @@ import EmojiPicker from "emoji-picker-react";
 import { FaPaperclip, FaRegSmile, FaUserCircle, FaTrash, FaCheck, FaCheckDouble } from "react-icons/fa";
 import { FiSend, FiClock } from "react-icons/fi";
 
+
 const socket = io("http://localhost:5000", { transports: ["websocket", "polling"] });
 const username = localStorage.getItem("username") || "Guest";
 const SECRET_KEY = "15841cf7acfc11c56adba5f20b102b458dd704911c9110fe88c445e268957580";
@@ -21,6 +22,19 @@ const decryptMessage = (cipherText) => {
   }
 };
 
+const formatTimestamp = (timestamp) => {
+  if (!timestamp) return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  
+  try {
+    const date = timestamp instanceof Date ? timestamp : new Date(timestamp);
+    return isNaN(date.getTime()) 
+      ? new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      : date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  } catch {
+    return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
+};
+
 const Chat = () => {
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState([]);
@@ -28,7 +42,9 @@ const Chat = () => {
   const [room, setRoom] = useState("General");
   const [typing, setTyping] = useState("");
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [showReactionPicker, setShowReactionPicker] = useState(null);
   const messagesEndRef = useRef(null);
+  const quickReactions = ['👍', '❤️', '😂', '😮', '😢'];
 
   // Scroll to bottom when messages update
   useEffect(() => {
@@ -45,8 +61,9 @@ const Chat = () => {
           sender: msg.sender,
           text: decryptMessage(msg.text),
           fileUrl: msg.fileUrl || null,
-          isRead: msg.isRead || msg.sender === username, // Mark your own messages as read by default
-          timestamp: new Date(msg.timestamp)
+          isRead: msg.isRead || msg.sender === username,
+          timestamp: msg.timestamp || Date.now(),
+          reactions: msg.reactions || []
         }))
       );
     });
@@ -57,13 +74,13 @@ const Chat = () => {
         sender: data.sender,
         text: decryptMessage(data.text),
         fileUrl: data.fileUrl || null,
-        isRead: data.sender === username, // Mark your own messages as read immediately
-        timestamp: new Date()
+        isRead: data.sender === username,
+        timestamp: data.timestamp || Date.now(),
+        reactions: []
       };
       
       setMessages((prev) => [...prev, newMessage]);
       
-      // Notify sender that message was received (for their read receipt)
       if (data.sender !== username) {
         socket.emit("messageRead", data.messageId);
       }
@@ -75,10 +92,34 @@ const Chat = () => {
       ));
     });
 
+    socket.on("messageReaction", ({ messageId, reaction, user }) => {
+      setMessages(prev => prev.map(msg => 
+        msg._id === messageId 
+          ? { 
+              ...msg, 
+              reactions: [...(msg.reactions || []), { emoji: reaction, user }] 
+            } 
+          : msg
+      ));
+    });
+
+    socket.on("reactionRemoved", ({ messageId, reaction, user }) => {
+      setMessages(prev => prev.map(msg => 
+        msg._id === messageId
+          ? {
+              ...msg,
+              reactions: (msg.reactions || []).filter(r => !(r.emoji === reaction && r.user === user))
+            }
+          : msg
+      ));
+    });
+
     return () => {
       socket.off("chatHistory");
       socket.off("receiveMessage");
       socket.off("messageRead");
+      socket.off("messageReaction");
+      socket.off("reactionRemoved");
     };
   }, [room]);
 
@@ -117,6 +158,52 @@ const Chat = () => {
     };
   }, []);
 
+  const handleReactToMessage = (messageId, reaction) => {
+    const message = messages.find(m => m._id === messageId);
+    const alreadyReacted = message?.reactions?.some(r => r.emoji === reaction && r.user === username);
+
+    if (alreadyReacted) {
+      handleRemoveReaction(messageId, reaction);
+      return;
+    }
+
+    setMessages(prev => prev.map(msg => 
+      msg._id === messageId 
+        ? { 
+            ...msg, 
+            reactions: [...(msg.reactions || []), { emoji: reaction, user: username }] 
+          } 
+        : msg
+    ));
+
+    socket.emit("reactToMessage", { 
+      messageId, 
+      reaction, 
+      room,
+      user: username 
+    });
+
+    setShowReactionPicker(null);
+  };
+
+  const handleRemoveReaction = (messageId, reaction) => {
+    setMessages(prev => prev.map(msg => 
+      msg._id === messageId
+        ? {
+            ...msg,
+            reactions: (msg.reactions || []).filter(r => !(r.emoji === reaction && r.user === username))
+          }
+        : msg
+    ));
+
+    socket.emit("removeReaction", { 
+      messageId, 
+      reaction, 
+      room,
+      user: username 
+    });
+  };
+
   const sendMessage = () => {
     if (!message.trim()) return;
 
@@ -124,7 +211,8 @@ const Chat = () => {
     socket.emit("sendMessage", { 
       text: encryptedText, 
       sender: username, 
-      room 
+      room,
+      timestamp: Date.now() 
     });
     setMessage("");
   };
@@ -211,10 +299,31 @@ const Chat = () => {
                   </a>
                 )}
 
+                {/* Reactions display */}
+                {msg.reactions?.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-2">
+                    {msg.reactions.map((reaction, idx) => (
+                      <span
+                        key={idx}
+                        className={`text-xs px-1 rounded cursor-pointer ${
+                          reaction.user === username ? 'bg-blue-400' : 'bg-gray-600'
+                        }`}
+                        onClick={() => {
+                          if (reaction.user === username) {
+                            handleRemoveReaction(msg._id, reaction.emoji);
+                          }
+                        }}
+                      >
+                        {reaction.emoji}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
                 <div className="flex items-center justify-end mt-1 space-x-2">
                   <span className="text-xs text-gray-300">
                     <FiClock className="inline mr-1" />
-                    {msg.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                    {formatTimestamp(msg.timestamp)}
                   </span>
                   
                   {msg.sender === username && (
@@ -228,6 +337,35 @@ const Chat = () => {
                     </span>
                   )}
                 </div>
+
+                {/* Reaction button */}
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowReactionPicker(showReactionPicker === msg._id ? null : msg._id);
+                  }}
+                  className="absolute -bottom-2 -right-2 bg-gray-600 text-white p-1 rounded-full hover:bg-gray-500"
+                >
+                  <FaRegSmile size={12} />
+                </button>
+
+                {/* Reaction picker */}
+                {showReactionPicker === msg._id && (
+                  <div className="absolute bottom-8 right-0 bg-gray-800 rounded-lg p-2 shadow-xl flex gap-1 z-10">
+                    {quickReactions.map(emoji => (
+                      <button
+                        key={emoji}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleReactToMessage(msg._id, emoji);
+                        }}
+                        className="text-lg hover:scale-125 transition-transform"
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>
+                )}
 
                 {msg.sender === username && (
                   <button
