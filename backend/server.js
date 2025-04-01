@@ -155,6 +155,18 @@ io.on("connection", (socket) => {
   socket.on("disconnect", () => {
     console.log(`User disconnected: ${socket.id}`);
   });
+
+  socket.on('reactToMessage', async ({ messageId, reaction, room }) => {
+  try {
+    await Message.findByIdAndUpdate(messageId, {
+      $addToSet: { reactions: { emoji: reaction, user: socket.userId } }
+    });
+    
+    socket.to(room).emit('messageReaction', { messageId, reaction });
+  } catch (error) {
+    console.error("Reaction error:", error);
+  }
+});
 });
 
 app.post('/api/upload', upload.single("file"), (req, res) => {

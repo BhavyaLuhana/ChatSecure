@@ -66,22 +66,44 @@ router.post("/register", async (req, res) => {
 router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
+    console.log("Login attempt for:", email); // Debug log
+    
     const user = await User.findOne({ email });
+    console.log("User found:", user ? user.email : "None"); // Debug log
 
-    // Verify user credentials
-    if (user && (await bcrypt.compare(password, user.password))) {
-      res.json({
-        _id: user._id,
-        username: user.username,
-        email: user.email,
-        token: generateToken(user._id),
-      });
-    } else {
-      res.status(401).json({ message: "Invalid email or password" });
+    if (!user) {
+      console.log("No user found with this email");
+      return res.status(401).json({ message: "Invalid email or password" });
     }
+
+    console.log("Stored hash:", user.password); // Debug hash
+    console.log("Comparing password...");
+    
+    const isMatch = await bcrypt.compare(password, user.password);
+    console.log("Password match:", isMatch); // Debug result
+
+    if (!isMatch) {
+      console.log("Password comparison failed");
+      return res.status(401).json({ message: "Invalid email or password" });
+    }
+
+    console.log("Login successful, generating token...");
+    const token = generateToken(user._id);
+    console.log("Generated token:", token); // Debug token
+
+    res.json({
+      _id: user._id,
+      username: user.username,
+      email: user.email,
+      token: token,
+    });
+
   } catch (error) {
     console.error("Login Error:", error);
-    res.status(500).json({ message: `Server error: ${error.message}` });
+    res.status(500).json({ 
+      message: `Server error: ${error.message}`,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 });
 
